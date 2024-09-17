@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Powerful File Compressor - Images & PDFs</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1423;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            background-color: #ffffff;
+            padding: 20px;
+            margin: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        label {
+            font-size: 1.1em;
+            color: #555;
+        }
+        input[type="file"], input[type="number"], input[type="submit"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 1em;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            box-sizing: border-box;
+        }
+        input[type="submit"] {
+            background-color: #28a745;
+            color: #fff;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        input[type="submit"]:hover {
+            background-color: #218838;
+        }
+        .output {
+            margin-top: 20px;
+        }
+        .progress-container {
+            margin-top: 20px;
+        }
+        .progress-bar {
+            width: 100%;
+            background-color: #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 20px;
+            background-color: #28a745;
+            width: 0%;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+            transition: width 0.4s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>File Compressor</h1>
+        <form id="compressForm">
+            <label for="file">Choose an image or PDF file:</label>
+            <input type="file" id="file" accept="image/*,application/pdf" required>
+            <label for="limit">Set output limit (KB):</label>
+            <input type="number" id="limit" placeholder="Enter limit in KB" required>
+            <input type="submit" value="Compress">
+        </form>
+
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="progressBar"></div>
+            </div>
+        </div>
+
+        <div class="output" id="output"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.16.0"></script>
+
+    <script>
+        document.getElementById('compressForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('file');
+            const limitKB = parseInt(document.getElementById('limit').value);
+            const file = fileInput.files[0];
+
+            if (file) {
+                if (file.type.startsWith('image/')) {
+                    compressImage(file, limitKB);
+                } else if (file.type === 'application/pdf') {
+                    compressPDF(file, limitKB);
+                } else {
+                    alert('Unsupported file type. Please upload an image or PDF.');
+                }
+            }
+        });
+
+        function updateProgressBar(percentage) {
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = percentage + '%';
+            progressBar.innerHTML = percentage + '%';
+        }
+
+        function compressImage(file, limitKB) {
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                const img = new Image();
+                img.onload = function () {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const maxWidth = 800;
+                    const scaleSize = Math.min(maxWidth / img.width, 1);
+                    canvas.width = img.width * scaleSize;
+                    canvas.height = img.height * scaleSize;
+
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    let quality = 0.8;
+                    compressCanvasToBlob(canvas, quality, limitKB);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function compressCanvasToBlob(canvas, quality, limitKB) {
+            canvas.toBlob(function (blob) {
+                const fileSizeKB = blob.size / 1024;
+                updateProgressBar(Math.min(100, (blob.size / (limitKB * 1024)) * 100));
+                if (fileSizeKB <= limitKB) {
+                    const url = URL.createObjectURL(blob);
+                    const output = document.getElementById('output');
+                    output.innerHTML = `<p>Image compressed successfully! <a href="${url}" download="compressed_image.jpg">Download compressed image</a></p>`;
+                    updateProgressBar(100);
+                } else if (quality > 0.1) {
+                    compressCanvasToBlob(canvas, quality - 0.1, limitKB);
+                } else {
+                    const output = document.getElementById('output');
+                    output.innerHTML = `<p>Unable to compress image to the desired size. Try a higher limit.</p>`;
+                }
+            }, 'image/jpeg', quality);
+        }
+
+        async function compressPDF(file, limitKB) {
+            const reader = new FileReader();
+            reader.onload = async function (event) {
+                const pdfDoc = await PDFLib.PDFDocument.load(event.target.result);
+                const pages = pdfDoc.getPages();
+
+                for (const page of pages) {
+                    const { width, height } = page.getSize();
+                    const imgElements = await page.getImages();
+                    for (const imgElement of imgElements) {
+                        const imgWidth = imgElement.width;
+                        const imgHeight = imgElement.height;
+
+                        if (imgWidth > 800 || imgHeight > 800) {
+                            const aspectRatio = imgWidth / imgHeight;
+                            const newWidth = Math.min(imgWidth, 800);
+                            const newHeight = newWidth / aspectRatio;
+                            imgElement.resize(newWidth, newHeight);
+                        }
+                    }
+                }
+
+                const pdfBytes = await pdfDoc.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const fileSizeKB = blob.size / 1024;
+                updateProgressBar(Math.min(100, (blob.size / (limitKB * 1024)) * 100));
+
+                if (fileSizeKB <= limitKB) {
+                    const url = URL.createObjectURL(blob);
+                    const output = document.getElementById('output');
+                    output.innerHTML = `<p>PDF compressed successfully! <a href="${url}" download="compressed_pdf.pdf">Download compressed PDF</a></p>`;
+                    updateProgressBar(100);
+                } else {
+                    alert(`PDF compression is limited. Resulting size: ${fileSizeKB.toFixed(2)} KB. Consider a higher size limit.`);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    </script>
+</body>
+</html>
